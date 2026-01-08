@@ -178,34 +178,26 @@ var JettonTransferClassicStraw = Straw[BubbleJettonTransfer]{
 var FlawedJettonTransferClassicStraw = Straw[BubbleFlawedJettonTransfer]{
 	CheckFuncs: []bubbleCheck{IsTx, HasInterface(abi.JettonWallet), HasOperation(abi.JettonTransferMsgOp), func(bubble *Bubble) bool {
 		// Check that sent amount is not the same as received one
+		if len(bubble.Children) != 1 {
+			return false
+		}
+
 		currTx := bubble.Info.(BubbleTx)
-		transferBody, ok := currTx.decodedBody.Value.(abi.JettonTransferMsgBody)
+		transferBody, _ := currTx.decodedBody.Value.(abi.JettonTransferMsgBody)
+		transferAmount := big.Int(transferBody.Amount)
+
+		internalTransferTx := bubble.Children[0].Info.(BubbleTx)
+		internalTransfer, ok := internalTransferTx.decodedBody.Value.(abi.JettonInternalTransferMsgBody)
 		if !ok {
 			return false
 		}
-		transferAmount := big.Int(transferBody.Amount)
+		internalTransferAmount := big.Int(internalTransfer.Amount)
 
-		for _, child := range bubble.Children {
-			internalTransferTx, ok := child.Info.(BubbleTx)
-			if !ok {
-				continue
-			}
-			if internalTransferTx.decodedBody == nil {
-				continue
-			}
-			internalTransfer, ok := internalTransferTx.decodedBody.Value.(abi.JettonInternalTransferMsgBody)
-			if !ok {
-				continue
-			}
-			internalTransferAmount := big.Int(internalTransfer.Amount)
-
-			if transferAmount.Cmp(&internalTransferAmount) == 0 {
-				continue
-			}
-
-			return true
+		if transferAmount.Cmp(&internalTransferAmount) == 0 {
+			return false
 		}
-		return false
+
+		return true
 	}},
 	Builder: func(newAction *BubbleFlawedJettonTransfer, bubble *Bubble) error {
 		tx := bubble.Info.(BubbleTx)
@@ -223,7 +215,7 @@ var FlawedJettonTransferClassicStraw = Straw[BubbleFlawedJettonTransfer]{
 		return nil
 	},
 	SingleChild: &Straw[BubbleFlawedJettonTransfer]{
-		CheckFuncs: []bubbleCheck{IsTx, HasInterface(abi.JettonWallet), HasOperation(abi.JettonInternalTransferMsgOp)},
+		CheckFuncs: []bubbleCheck{IsTx, Or(HasInterface(abi.JettonWallet), HasOperation(abi.JettonInternalTransferMsgOp))}, //todo: remove Or(). both should be in new indexer
 		Optional:   true,
 		Builder: func(newAction *BubbleFlawedJettonTransfer, bubble *Bubble) error {
 			tx := bubble.Info.(BubbleTx)
@@ -248,9 +240,7 @@ var FlawedJettonTransferClassicStraw = Straw[BubbleFlawedJettonTransfer]{
 		},
 		Children: []Straw[BubbleFlawedJettonTransfer]{
 			{
-				CheckFuncs: []bubbleCheck{IsTx, func(bubble *Bubble) bool {
-					return true
-				}, HasOperation(abi.JettonNotifyMsgOp)},
+				CheckFuncs: []bubbleCheck{IsTx, HasOperation(abi.JettonNotifyMsgOp)},
 				Builder: func(newAction *BubbleFlawedJettonTransfer, bubble *Bubble) error {
 					tx := bubble.Info.(BubbleTx)
 					newAction.success = true
